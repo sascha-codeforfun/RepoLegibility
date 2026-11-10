@@ -1,0 +1,37 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>RepoLegibility</RootNamespace>
+    <AssemblyName>RepoLegibility</AssemblyName>
+    <Product>RepoLegibility</Product>
+    <!-- Major and minor stay put; only the build number goes up, with every delivery. -->
+    <Version>1.0.36</Version>
+
+    <ApplicationIcon>app.ico</ApplicationIcon>
+
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <SelfContained>true</SelfContained>
+    <PublishSingleFile>true</PublishSingleFile>
+    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+    <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
+    <DebugType>none</DebugType>
+    <Deterministic>true</Deterministic>
+    <!-- No commit hash appended to the product version: a build from a git clone matches one from a zip. -->
+    <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Resource Include="app_256.png" />
+  </ItemGroup>
+
+  <!-- The SDK that built the exe, shown in the header next to the version. -->
+  <ItemGroup>
+    <AssemblyMetadata Include="SdkVersion" Value="$(NETCoreSdkVersion)" />
+  </ItemGroup>
+
+</Project>

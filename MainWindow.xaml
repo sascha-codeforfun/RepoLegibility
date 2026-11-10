@@ -1,0 +1,897 @@
+<Window x:Class="RepoLegibility.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:ui="clr-namespace:RepoLegibility.Ui"
+        xmlns:busy="clr-namespace:BusyOverlayKit"
+        xmlns:kit="clr-namespace:HueThemeKit"
+        Style="{StaticResource Hue.Window}"
+        Title="RepoLegibility"
+        Width="1320" Height="880" MinWidth="1000" MinHeight="620"
+        WindowStartupLocation="CenterScreen"
+        AllowDrop="True" DragOver="Window_DragOver" Drop="Window_Drop">
+
+    <Window.Resources>
+        <BooleanToVisibilityConverter x:Key="BoolToVisibility" />
+        <ui:InverseBoolToVisibilityConverter x:Key="InverseBoolToVisibility" />
+        <ui:BoolToHiddenConverter x:Key="BoolToHidden" />
+        <ui:IconGeometryConverter x:Key="IconGeometry" />
+        <ui:ThemeStyleConverter x:Key="ThemeStyle" />
+
+        <!-- One row of the Facts view: label, value, and a category tag where there is one. -->
+        <!-- A fact: an optional kind tag first, the name and its value on one line, a plain line under it,
+             and its findings on the right where there are any. -->
+        <DataTemplate x:Key="FactTemplate" DataType="{x:Type ui:FactRow}">
+            <DockPanel Margin="0,5">
+                <Button DockPanel.Dock="Right" Style="{StaticResource Hue.Button.Outline}" Content="{Binding ShowText}" Tag="{Binding Show}"
+                        Click="ShowThese_Click" Margin="12,0,0,0" VerticalAlignment="Top" ToolTip="Opens Findings with only these"
+                        Visibility="{Binding CanShow, Converter={StaticResource BoolToVisibility}}" />
+                <ContentControl DockPanel.Dock="Left" Style="{StaticResource Hue.Tag}" Content="{Binding Tag}" Margin="0,0,10,0" VerticalAlignment="Top"
+                                Visibility="{Binding HasTag, Converter={StaticResource BoolToVisibility}}" />
+                <StackPanel>
+                    <DockPanel>
+                        <!-- What it is, at a glance, beside the name: a web address, a file. -->
+                        <Path DockPanel.Dock="Left" Style="{StaticResource Hue.Icon}" Data="{Binding Icon, Converter={StaticResource IconGeometry}}"
+                              TextElement.Foreground="{DynamicResource Brush.TextDim}" VerticalAlignment="Top" Margin="0,1,8,0"
+                              Visibility="{Binding HasIcon, Converter={StaticResource BoolToVisibility}}" />
+                        <TextBlock Style="{StaticResource Text.Body}" TextWrapping="Wrap">
+                            <Run Text="{Binding Label, Mode=OneWay}" FontFamily="{StaticResource Font.Mono}" /><Run Text="    " /><Run
+                                 Text="{Binding Value, Mode=OneWay}" Foreground="{DynamicResource Brush.TextMuted}" />
+                        </TextBlock>
+                    </DockPanel>
+                    <TextBlock Text="{Binding Help}" Style="{StaticResource Text.Caption}" TextWrapping="Wrap" Margin="0,2,0,0"
+                               Visibility="{Binding HasHelp, Converter={StaticResource BoolToVisibility}}" />
+                </StackPanel>
+            </DockPanel>
+        </DataTemplate>
+
+        <!-- A fact with findings to show, in a list where some have none: the button's room is kept on every
+             row, so the rows stand evenly and the buttons line up at one width. The text starts level with the
+             button's label. -->
+        <DataTemplate x:Key="FactShowTemplate" DataType="{x:Type ui:FactRow}">
+            <DockPanel Margin="0,3">
+                <Button DockPanel.Dock="Right" Style="{StaticResource Hue.Button.Outline}" Content="{Binding ShowText}" Tag="{Binding Show}"
+                        Click="ShowThese_Click" Margin="12,0,0,0" MinWidth="100" VerticalAlignment="Top" ToolTip="Opens Findings with only these"
+                        Visibility="{Binding CanShow, Converter={StaticResource BoolToHidden}}" />
+                <ContentControl DockPanel.Dock="Left" Style="{StaticResource Hue.Tag}" Content="{Binding Tag}" Margin="0,6,10,0" VerticalAlignment="Top"
+                                Visibility="{Binding HasTag, Converter={StaticResource BoolToVisibility}}" />
+                <StackPanel Margin="0,8,0,0">
+                    <TextBlock Style="{StaticResource Text.Body}" TextWrapping="Wrap">
+                        <Run Text="{Binding Label, Mode=OneWay}" FontFamily="{StaticResource Font.Mono}" /><Run Text="    " /><Run
+                             Text="{Binding Value, Mode=OneWay}" Foreground="{DynamicResource Brush.TextMuted}" />
+                    </TextBlock>
+                    <TextBlock Text="{Binding Help}" Style="{StaticResource Text.Caption}" TextWrapping="Wrap" Margin="0,2,0,0"
+                               Visibility="{Binding HasHelp, Converter={StaticResource BoolToVisibility}}" />
+                </StackPanel>
+            </DockPanel>
+        </DataTemplate>
+
+        <!-- A label and its value: the label narrow, the value right after it. -->
+        <DataTemplate x:Key="SizeTemplate" DataType="{x:Type ui:FactRow}">
+            <Grid Margin="0,4">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="150" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+                <TextBlock Text="{Binding Label}" Style="{StaticResource Text.Caption}" />
+                <TextBlock Grid.Column="1" Text="{Binding Value}" Style="{StaticResource Text.Body}" TextWrapping="Wrap" />
+            </Grid>
+        </DataTemplate>
+    </Window.Resources>
+
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />  <!-- header -->
+            <RowDefinition Height="*" />     <!-- body   -->
+            <RowDefinition Height="Auto" />  <!-- status -->
+        </Grid.RowDefinitions>
+
+        <!-- ================= header ================= -->
+        <Border Grid.Row="0" Style="{StaticResource Hue.Header}">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+
+                <DockPanel>
+                    <ContentControl Style="{StaticResource Hue.IconGlow}" Width="64" Height="64">
+                        <Image Source="/app_256.png" RenderOptions.BitmapScalingMode="HighQuality" />
+                    </ContentControl>
+                    <StackPanel Margin="18,0,24,0" VerticalAlignment="Center">
+                        <TextBlock Text="RepoLegibility" Style="{StaticResource Text.Title}" TextTrimming="CharacterEllipsis" />
+                        <TextBlock Text="Shows what a C# repo's code reads, writes and runs, and how clearly."
+                                   Style="{StaticResource Text.Body}" Margin="0,4,0,0"
+                                   TextWrapping="NoWrap" TextTrimming="CharacterEllipsis" />
+                    </StackPanel>
+                </DockPanel>
+
+                <!-- Live pills: the scan's time, then what a reader looks for first. Shown only once there's something to say. -->
+                <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                    <ContentControl x:Name="ScanPill" Style="{StaticResource Hue.Pill.Warn}" FontFamily="{StaticResource Font.Mono}"
+                                    MinWidth="96" Content="Scan 0 s" Visibility="Collapsed"
+                                    ToolTip="How long the last scan took" />
+                    <!-- Each pill opens Findings with what it counts. The kit's pill toggle gives them the hand, the hover
+                         frame and the focus outline; they never stay lit, since they're shortcuts, not filters. -->
+                    <ToggleButton x:Name="ObscuredButton" Style="{StaticResource Hue.PillToggle}" Margin="6,0,0,0" Tag="Obscured"
+                                  Click="HeaderPill_Click" Visibility="Collapsed"
+                                  ToolTip="Written so the source doesn't show it plainly: encoded, built from character codes or fragments. Read these first. Click to show them.">
+                        <ContentControl x:Name="ObscuredPill" Style="{StaticResource Hue.Pill.Error}" />
+                    </ToggleButton>
+                    <ToggleButton x:Name="OpaqueButton" Style="{StaticResource Hue.PillToggle}" Margin="6,0,0,0" Tag="Opaque"
+                                  Click="HeaderPill_Click" Visibility="Collapsed"
+                                  ToolTip="Where the source can't show what happens, by nature: it depends on something only known while the app runs. Click to show them.">
+                        <ContentControl x:Name="OpaquePill" Style="{StaticResource Hue.Pill.Ok}" />
+                    </ToggleButton>
+                    <ToggleButton x:Name="AdminButton" Style="{StaticResource Hue.PillToggle}" Margin="6,0,0,0" Tag="Admin"
+                                  Click="HeaderPill_Click" Visibility="Collapsed"
+                                  ToolTip="The app runs as administrator. Click to show where.">
+                        <ContentControl x:Name="AdminPill" Style="{StaticResource Hue.Pill.Warn}" Content="Admin" />
+                    </ToggleButton>
+                    <ToggleButton x:Name="WritesButton" Style="{StaticResource Hue.PillToggle}" Margin="6,0,0,0" Tag="Writes"
+                                  Click="HeaderPill_Click" Visibility="Collapsed"
+                                  ToolTip="Code passages that write or delete files or registry values. Click to show them.">
+                        <ContentControl x:Name="WritesPill" Style="{StaticResource Hue.Pill.Accent}" />
+                    </ToggleButton>
+                    <ToggleButton x:Name="PathsButton" Style="{StaticResource Hue.PillToggle}" Margin="6,0,0,0" Tag="Paths"
+                                  Click="HeaderPill_Click" Visibility="Collapsed"
+                                  ToolTip="Distinct places those passages write to. Click to show the passages, sorted by place.">
+                        <ContentControl x:Name="PathsPill" Style="{StaticResource Hue.Pill.Accent}" />
+                    </ToggleButton>
+                </StackPanel>
+
+                <StackPanel Grid.Column="2" Orientation="Horizontal" HorizontalAlignment="Right"
+                            VerticalAlignment="Center" Margin="24,0,0,0">
+                    <StackPanel VerticalAlignment="Center">
+                        <TextBlock x:Name="VersionText" Style="{StaticResource Text.Version}" HorizontalAlignment="Right" />
+                        <TextBlock x:Name="SdkText" Style="{StaticResource Text.Caption}" HorizontalAlignment="Right" />
+                        <TextBlock x:Name="RuntimeText" Style="{StaticResource Text.Caption}" HorizontalAlignment="Right" />
+                    </StackPanel>
+                </StackPanel>
+            </Grid>
+        </Border>
+
+        <!-- ================= body ================= -->
+        <Grid Grid.Row="1" Margin="28,20,28,16">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="*" />
+            </Grid.RowDefinitions>
+
+            <!-- The zip and what can be done with its report. -->
+            <Border Style="{StaticResource Hue.Card}" Padding="20,14">
+                <DockPanel>
+                    <Button x:Name="OpenButton" DockPanel.Dock="Left" Style="{StaticResource Hue.Button.Primary}" Click="Open_Click"
+                            MinWidth="130" ToolTip="Pick a repo zip to read. Nothing in it is extracted, built or run.">
+                        <StackPanel Orientation="Horizontal">
+                            <Path Style="{StaticResource Hue.Icon}" Data="{StaticResource Icon.Open}" />
+                            <TextBlock Text="Open zip…" Margin="8,0,0,0" VerticalAlignment="Center" />
+                        </StackPanel>
+                    </Button>
+                    <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
+                        <Button x:Name="CopyAiButton" Style="{StaticResource Hue.Button.Tonal}" Click="CopyAi_Click" IsEnabled="False"
+                                MinWidth="130" ToolTip="Copies the whole report as Markdown for an AI assistant: a second opinion, opaque findings first.">
+                            <StackPanel Orientation="Horizontal">
+                                <Path Style="{StaticResource Hue.Icon}" Data="{StaticResource Icon.Copy}" />
+                                <TextBlock x:Name="CopyAiText" Text="Copy for AI" Margin="8,0,0,0" VerticalAlignment="Center" />
+                            </StackPanel>
+                        </Button>
+                        <Button x:Name="ReportButton" Style="{StaticResource Hue.Button.Tonal}" Click="Report_Click" IsEnabled="False"
+                                Margin="10,0,0,0" MinWidth="130" ToolTip="Shows the report as it prints, light on white, and saves it as a PDF.">
+                            <StackPanel Orientation="Horizontal">
+                                <Path Style="{StaticResource Hue.Icon}" Data="{StaticResource Icon.Import}" />
+                                <TextBlock Text="PDF report…" Margin="8,0,0,0" VerticalAlignment="Center" />
+                            </StackPanel>
+                        </Button>
+                    </StackPanel>
+                    <StackPanel Margin="20,0,20,0" VerticalAlignment="Center">
+                        <TextBlock x:Name="ZipText" Text="No zip open. Drop one on this window, or use Open zip."
+                                   Style="{StaticResource Text.Body}" TextTrimming="CharacterEllipsis" />
+                        <TextBlock x:Name="ZipDetail" Style="{StaticResource Text.Caption}" FontFamily="{StaticResource Font.Mono}"
+                                   TextTrimming="CharacterEllipsis" Margin="0,3,0,0" Visibility="Collapsed" />
+                    </StackPanel>
+                </DockPanel>
+            </Border>
+
+            <!-- Before the first scan. -->
+            <StackPanel x:Name="EmptyState" Grid.Row="1" VerticalAlignment="Center" HorizontalAlignment="Center" MaxWidth="620">
+                <TextBlock Text="Open a repo zip" Style="{StaticResource Text.Heading}" HorizontalAlignment="Center" />
+                <TextBlock Style="{StaticResource Text.Body}" TextWrapping="Wrap" TextAlignment="Center" Margin="0,10,0,0"
+                           Text="Open a repo's zip to see what its C# code touches on your machine and the network, whether it asks for administrator rights, and where a reviewer should start. Opaque marks code a person has to read. The result is a map of what the code involves, not a verdict on whether it is safe." />
+                <TextBlock Style="{StaticResource Text.Caption}" TextWrapping="Wrap" TextAlignment="Center" Margin="0,10,0,0"
+                           Text="The zip is read in memory. Nothing is extracted, built or run, and nothing is written unless you save a report." />
+            </StackPanel>
+
+            <TabControl x:Name="Tabs" Grid.Row="1" Margin="0,16,0,0" Visibility="Collapsed" SelectionChanged="Tabs_SelectionChanged">
+                <!-- In plain words, for someone who doesn't read code. Every answer leads to its findings. -->
+                <TabItem x:Name="OverviewTab" Header="Overview">
+                    <ScrollViewer x:Name="OverviewScroll" VerticalScrollBarVisibility="Auto" Margin="0,14,0,0">
+                        <StackPanel x:Name="OverviewPanel" Grid.IsSharedSizeScope="True">
+                            <Border Style="{StaticResource Hue.Card}" Margin="0,0,0,16">
+                                <StackPanel>
+                                    <TextBlock Text="IN SHORT" Style="{StaticResource Text.Section}" Margin="0,0,0,8" />
+                                    <TextBlock Text="{Binding Headline}" Style="{StaticResource Text.Heading}" TextWrapping="Wrap" Margin="0,0,0,8" />
+                                    <!-- The combinations by name, one short line each; the full sentences are in the card below. -->
+                                    <ItemsControl ItemsSource="{Binding Combinations}" Margin="0,0,0,10"
+                                                  Visibility="{Binding HasCombinations, Converter={StaticResource BoolToVisibility}}">
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate DataType="{x:Type ui:CombinationRow}">
+                                                <DockPanel Margin="0,0,0,6">
+                                                    <Button DockPanel.Dock="Right" Style="{StaticResource Hue.Button.Outline}" Content="{Binding ShowText}" Tag="{Binding Show}"
+                                                            Click="ShowThese_Click" Margin="16,0,0,0" MinWidth="100" VerticalAlignment="Top" ToolTip="Opens Findings with only these" />
+                                                    <ContentControl DockPanel.Dock="Left" Style="{StaticResource Hue.Tag}" Content="{Binding Standing}" VerticalAlignment="Top"
+                                                                    Margin="0,6,10,0" Visibility="{Binding Expected, Converter={StaticResource BoolToVisibility}}" />
+                                                    <ContentControl DockPanel.Dock="Left" Style="{StaticResource Hue.Tag}" Content="{Binding Standing}" VerticalAlignment="Top"
+                                                                    Margin="0,6,10,0" Visibility="{Binding Mentioned, Converter={StaticResource BoolToVisibility}}" />
+                                                    <ContentControl DockPanel.Dock="Left" Style="{StaticResource Hue.Tag.Caution}" Content="{Binding Standing}" VerticalAlignment="Top"
+                                                                    Margin="0,6,10,0" Visibility="{Binding Missing, Converter={StaticResource BoolToVisibility}}" />
+                                                    <TextBlock Text="{Binding Title}" Style="{StaticResource Text.Body}" VerticalAlignment="Top" Margin="0,8,0,0" TextWrapping="Wrap" />
+                                                </DockPanel>
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+                                    <ItemsControl ItemsSource="{Binding Answers}">
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate DataType="{x:Type ui:AnswerRow}">
+                                                <Grid Margin="0,0,0,6">
+                                                    <Grid.ColumnDefinitions>
+                                                        <ColumnDefinition Width="Auto" />
+                                                        <ColumnDefinition Width="Auto" SharedSizeGroup="Question" />
+                                                        <ColumnDefinition Width="*" />
+                                                        <ColumnDefinition Width="Auto" SharedSizeGroup="AnswerShow" />
+                                                    </Grid.ColumnDefinitions>
+                                                    <!-- The dot says where to look: warm for what's worth knowing, green for a plain no. -->
+                                                    <ContentControl VerticalAlignment="Top" Margin="0,14,12,0">
+                                                        <ContentControl.Style>
+                                                            <Style TargetType="ContentControl" BasedOn="{StaticResource Hue.Marker}">
+                                                                <Setter Property="Foreground" Value="{DynamicResource Brush.Ok}" />
+                                                                <Style.Triggers>
+                                                                    <DataTrigger Binding="{Binding Notable}" Value="True">
+                                                                        <Setter Property="Foreground" Value="{DynamicResource Brush.Warn}" />
+                                                                    </DataTrigger>
+                                                                    <!-- Later trigger wins: obscured code or a server deciding what runs is red. -->
+                                                                    <DataTrigger Binding="{Binding Serious}" Value="True">
+                                                                        <Setter Property="Foreground" Value="{DynamicResource Brush.Error}" />
+                                                                    </DataTrigger>
+                                                                </Style.Triggers>
+                                                            </Style>
+                                                        </ContentControl.Style>
+                                                    </ContentControl>
+                                                    <TextBlock Grid.Column="1" Text="{Binding Question}" Style="{StaticResource Text.Body}" Margin="0,8,24,0"
+                                                               MaxWidth="360" TextWrapping="Wrap" />
+                                                    <TextBlock Grid.Column="2" Text="{Binding Answer}" Style="{StaticResource Text.Body}" Margin="0,8,0,0" TextWrapping="Wrap" />
+                                                    <Button Grid.Column="3" Style="{StaticResource Hue.Button.Outline}" Content="{Binding ShowText}" Tag="{Binding Show}"
+                                                            Click="ShowThese_Click" Margin="16,0,0,0" MinWidth="100" VerticalAlignment="Top"
+                                                            ToolTip="Opens Findings with only these"
+                                                            Visibility="{Binding CanShow, Converter={StaticResource BoolToHidden}}" />
+                                                </Grid>
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+                                </StackPanel>
+                            </Border>
+
+                            <Border Style="{StaticResource Hue.Card}" Margin="0,0,0,16">
+                                <StackPanel>
+                                    <TextBlock Text="WHAT IT READS AND CHANGES" Style="{StaticResource Text.Section}" Margin="0,0,0,4" />
+                                    <TextBlock Style="{StaticResource Text.Caption}" TextWrapping="Wrap" Margin="0,0,0,12"
+                                               Text="Changes can do more harm than reads, so they stand on the right. The whole computer means everyone on this PC; that needs administrator rights." />
+                                    <TextBlock Text="{Binding LinesEmpty}" Style="{StaticResource Text.Body}"
+                                               Visibility="{Binding HasLines, Converter={StaticResource InverseBoolToVisibility}}" />
+                                    <Grid Margin="0,0,0,6" Visibility="{Binding HasLines, Converter={StaticResource BoolToVisibility}}">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="Auto" SharedSizeGroup="LineArea" />
+                                            <ColumnDefinition Width="Auto" SharedSizeGroup="LineReach" />
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="*" />
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Text="AREA" Style="{StaticResource Text.Caption}" Margin="0,0,20,0" />
+                                        <TextBlock Grid.Column="1" Text="HOW FAR" Style="{StaticResource Text.Caption}" Margin="0,0,20,0" />
+                                        <TextBlock Grid.Column="2" Text="READS · RECEIVES" Style="{StaticResource Text.Caption}" Margin="0,0,20,0" />
+                                        <TextBlock Grid.Column="3" Text="CHANGES · SENDS · STARTS" Style="{StaticResource Text.Caption}" />
+                                    </Grid>
+                                    <ItemsControl ItemsSource="{Binding Lines}">
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate DataType="{x:Type ui:LineRow}">
+                                                <Border BorderBrush="{DynamicResource Brush.LineSoft}" BorderThickness="0,1,0,0" Padding="0,8,0,8">
+                                                    <Grid>
+                                                        <Grid.ColumnDefinitions>
+                                                            <ColumnDefinition Width="Auto" SharedSizeGroup="LineArea" />
+                                                            <ColumnDefinition Width="Auto" SharedSizeGroup="LineReach" />
+                                                            <ColumnDefinition Width="*" />
+                                                            <ColumnDefinition Width="*" />
+                                                        </Grid.ColumnDefinitions>
+                                                        <StackPanel Orientation="Horizontal" Margin="0,0,20,0" VerticalAlignment="Top" ToolTip="{Binding AreaHelp}">
+                                                            <Path Style="{StaticResource Hue.Icon}" Data="{Binding IconKey, Converter={StaticResource IconGeometry}}"
+                                                                  TextElement.Foreground="{DynamicResource Brush.TextDim}" VerticalAlignment="Top" Margin="0,1,8,0" />
+                                                            <TextBlock Text="{Binding Area}" Style="{StaticResource Text.Body}" />
+                                                        </StackPanel>
+                                                        <TextBlock Grid.Column="1" Text="{Binding Reach}" Style="{StaticResource Text.Caption}" Margin="0,2,20,0"
+                                                                   MaxWidth="260" TextWrapping="Wrap" />
+                                                        <StackPanel Grid.Column="2" Margin="0,0,20,0">
+                                                            <TextBlock Text="{Binding ReadsText}" Style="{StaticResource Text.Body}" TextWrapping="Wrap" />
+                                                            <Button Style="{StaticResource Hue.Button.Outline}" Content="Show these" Tag="{Binding ShowReads}" Click="ShowThese_Click"
+                                                                    HorizontalAlignment="Left" Margin="0,6,0,0" MinWidth="100" ToolTip="Opens Findings with only these"
+                                                                    Visibility="{Binding HasReads, Converter={StaticResource BoolToVisibility}}" />
+                                                        </StackPanel>
+                                                        <StackPanel Grid.Column="3">
+                                                            <TextBlock Text="{Binding ChangesText}" Style="{StaticResource Text.Body}" TextWrapping="Wrap" />
+                                                            <Button Style="{StaticResource Hue.Button.Outline}" Content="Show these" Tag="{Binding ShowChanges}" Click="ShowThese_Click"
+                                                                    HorizontalAlignment="Left" Margin="0,6,0,0" MinWidth="100" ToolTip="Opens Findings with only these"
+                                                                    Visibility="{Binding HasChanges, Converter={StaticResource BoolToVisibility}}" />
+                                                        </StackPanel>
+                                                    </Grid>
+                                                </Border>
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+                                </StackPanel>
+                            </Border>
+
+                            <Border Style="{StaticResource Hue.Card}" Visibility="{Binding HasCombinations, Converter={StaticResource BoolToVisibility}}">
+                                <StackPanel>
+                                    <TextBlock Text="WORTH KNOWING TOGETHER" Style="{StaticResource Text.Section}" Margin="0,0,0,4" />
+                                    <TextBlock Style="{StaticResource Text.Caption}" TextWrapping="Wrap" Margin="0,0,0,12"
+                                               Text="Things an app should say up front. The README can declare them in a &quot;Before you build or run it&quot; section; a declaration tells you the author meant it, not that it's safe. Hidden code, and code another program can plant, can't be declared." />
+                                    <ItemsControl ItemsSource="{Binding Combinations}">
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate DataType="{x:Type ui:CombinationRow}">
+                                                <Border BorderBrush="{DynamicResource Brush.LineSoft}" BorderThickness="0,1,0,0" Padding="0,10,0,10">
+                                                    <DockPanel>
+                                                        <Button DockPanel.Dock="Right" Style="{StaticResource Hue.Button.Outline}" Content="{Binding ShowText}" Tag="{Binding Show}"
+                                                                Click="ShowThese_Click" Margin="16,0,0,0" MinWidth="100" VerticalAlignment="Top" ToolTip="Opens Findings with only these" />
+                                                        <StackPanel>
+                                                            <TextBlock Text="{Binding Sentence}" Style="{StaticResource Text.Body}" Margin="0,8,0,0" TextWrapping="Wrap" />
+                                                            <DockPanel Margin="0,6,0,0" LastChildFill="True">
+                                                                <!-- Declared or mentioned: neutral, the author knew; never the safe tag, since a README can't make
+                                                                     anything safe. Partly declared, not declared, can't be declared: worth a look. -->
+                                                                <ContentControl DockPanel.Dock="Left" Style="{StaticResource Hue.Tag}" Content="{Binding Standing}" VerticalAlignment="Top"
+                                                                                Visibility="{Binding Expected, Converter={StaticResource BoolToVisibility}}" />
+                                                                <ContentControl DockPanel.Dock="Left" Style="{StaticResource Hue.Tag}" Content="{Binding Standing}" VerticalAlignment="Top"
+                                                                                Visibility="{Binding Mentioned, Converter={StaticResource BoolToVisibility}}" />
+                                                                <ContentControl DockPanel.Dock="Left" Style="{StaticResource Hue.Tag.Caution}" Content="{Binding Standing}" VerticalAlignment="Top"
+                                                                                Visibility="{Binding Missing, Converter={StaticResource BoolToVisibility}}" />
+                                                                <TextBlock Text="{Binding Declaration}" Style="{StaticResource Text.Caption}" TextWrapping="Wrap"
+                                                                           VerticalAlignment="Center" Margin="10,0,0,0" />
+                                                            </DockPanel>
+                                                            <TextBlock Text="{Binding Check}" Style="{StaticResource Text.Caption}" TextWrapping="Wrap" Margin="0,6,0,0" />
+                                                        </StackPanel>
+                                                    </DockPanel>
+                                                </Border>
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+                                </StackPanel>
+                            </Border>
+                        </StackPanel>
+                    </ScrollViewer>
+                </TabItem>
+
+                <TabItem x:Name="FindingsTab" Header="Findings">
+                    <Grid Margin="0,14,0,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition x:Name="ListColumn" Width="2*" MinWidth="380" />
+                            <ColumnDefinition Width="16" />
+                            <ColumnDefinition x:Name="CodeColumn" Width="3*" MinWidth="420" />
+                        </Grid.ColumnDefinitions>
+
+                        <!-- The list: filters, then the findings grouped by scope. -->
+                        <DockPanel>
+                            <StackPanel DockPanel.Dock="Top">
+                                <!-- Filter pills (kit "Filter pills"): each chip is the pill or tag the list shows.
+                                     Nothing lit shows everything; lit chips in a row add up; the rows narrow each other. -->
+                                <WrapPanel x:Name="LegibilityChips" Margin="0,0,0,2">
+                                    <ToggleButton x:Name="ShowTogether" Style="{StaticResource Hue.PillToggle}" kit:HuePill.Key="Together" Click="Filter_Changed"
+                                                  ToolTip="Together: findings that mean more together, such as changing security settings or staying on the machine">
+                                        <ContentControl Style="{StaticResource Hue.Pill.Accent}" />
+                                    </ToggleButton>
+                                    <ToggleButton x:Name="ShowObscured" Style="{StaticResource Hue.PillToggle}" kit:HuePill.Key="Obscured" Click="Filter_Changed"
+                                                  ToolTip="Obscured: the source holds it, but written so it can't be read (encoded, character codes, fragments). Read these first">
+                                        <ContentControl Style="{StaticResource Hue.Pill.Error}" />
+                                    </ToggleButton>
+                                    <ToggleButton x:Name="ShowOpaque" Style="{StaticResource Hue.PillToggle}" kit:HuePill.Key="Opaque" Click="Filter_Changed"
+                                                  ToolTip="Opaque: the source can't show what happens, by nature: it depends on something only known while the app runs">
+                                        <ContentControl Style="{StaticResource Hue.Pill.Limit}" />
+                                    </ToggleButton>
+                                    <ToggleButton x:Name="ShowUntraced" Style="{StaticResource Hue.PillToggle}" kit:HuePill.Key="Untraced" Click="Filter_Changed"
+                                                  ToolTip="Untraced: the scan didn't reach where the value comes from; the reasons say where it stopped">
+                                        <ContentControl Style="{StaticResource Hue.Pill}" />
+                                    </ToggleButton>
+                                    <ToggleButton x:Name="ShowPartly" Style="{StaticResource Hue.PillToggle}" kit:HuePill.Key="RunTime" Click="Filter_Changed"
+                                                  ToolTip="Run time: decided when the app runs, by settings, input or the command line">
+                                        <ContentControl Style="{StaticResource Hue.Pill.Warn}" />
+                                    </ToggleButton>
+                                    <ToggleButton x:Name="ShowClear" Style="{StaticResource Hue.PillToggle}" kit:HuePill.Key="Clear" Click="Filter_Changed"
+                                                  ToolTip="Clear: the source shows what and where">
+                                        <ContentControl Style="{StaticResource Hue.Pill.Ok}" />
+                                    </ToggleButton>
+                                </WrapPanel>
+                                <WrapPanel x:Name="ScopeChips" Margin="0,0,0,2">
+                                    <ToggleButton x:Name="ShowAdmin" Style="{StaticResource Hue.PillToggle.Tag}" kit:HuePill.Key="Admin" Click="Filter_Changed"
+                                                  ToolTip="Admin scope: what needs administrator rights (machine-wide changes, services, the firewall, elevated starts). Reading a machine-wide place any user can read is User.">
+                                        <ContentControl Style="{StaticResource Hue.Tag.Unsafe}" />
+                                    </ToggleButton>
+                                    <ToggleButton x:Name="ShowWeb" Style="{StaticResource Hue.PillToggle.Tag}" kit:HuePill.Key="WebService" Click="Filter_Changed"
+                                                  ToolTip="Web service scope: remote endpoints">
+                                        <ContentControl Style="{StaticResource Hue.Tag.Caution}" />
+                                    </ToggleButton>
+                                    <ToggleButton x:Name="ShowUser" Style="{StaticResource Hue.PillToggle.Tag}" kit:HuePill.Key="User" Click="Filter_Changed"
+                                                  ToolTip="User scope: the user's profile, registry and credentials">
+                                        <ContentControl Style="{StaticResource Hue.Tag}" />
+                                    </ToggleButton>
+                                    <ToggleButton x:Name="ShowApp" Style="{StaticResource Hue.PillToggle.Tag}" kit:HuePill.Key="App" Click="Filter_Changed"
+                                                  ToolTip="App scope: its own folder">
+                                        <ContentControl Style="{StaticResource Hue.Tag.Safe}" />
+                                    </ToggleButton>
+                                </WrapPanel>
+                                <!-- Direction: which way a finding moves things. A finding can have two (a POST sends and receives). -->
+                                <WrapPanel x:Name="DirectionChips" Margin="0,0,0,8">
+                                    <ToggleButton x:Name="ShowReads" Style="{StaticResource Hue.PillToggle.Tag}" kit:HuePill.Key="Reads" Click="Filter_Changed"
+                                                  ToolTip="Reads: takes in from this machine (files, the registry, folders, the environment)">
+                                        <ContentControl Style="{StaticResource Hue.Tag}" />
+                                    </ToggleButton>
+                                    <ToggleButton x:Name="ShowChanges" Style="{StaticResource Hue.PillToggle.Tag}" kit:HuePill.Key="Changes" Click="Filter_Changed"
+                                                  ToolTip="Changes: changes this machine (file writes and deletes, registry changes, services, databases). The Writes pill in the header counts file and registry writes only.">
+                                        <ContentControl Style="{StaticResource Hue.Tag}" />
+                                    </ToggleButton>
+                                    <ToggleButton x:Name="ShowSends" Style="{StaticResource Hue.PillToggle.Tag}" kit:HuePill.Key="Sends" Click="Filter_Changed"
+                                                  ToolTip="Sends: data leaves the machine">
+                                        <ContentControl Style="{StaticResource Hue.Tag}" />
+                                    </ToggleButton>
+                                    <ToggleButton x:Name="ShowReceives" Style="{StaticResource Hue.PillToggle.Tag}" kit:HuePill.Key="Receives" Click="Filter_Changed"
+                                                  ToolTip="Receives: data comes in from outside">
+                                        <ContentControl Style="{StaticResource Hue.Tag}" />
+                                    </ToggleButton>
+                                    <ToggleButton x:Name="ShowRuns" Style="{StaticResource Hue.PillToggle.Tag}" kit:HuePill.Key="Runs" Click="Filter_Changed"
+                                                  ToolTip="Runs: starts or loads code">
+                                        <ContentControl Style="{StaticResource Hue.Tag}" />
+                                    </ToggleButton>
+                                </WrapPanel>
+                                <DockPanel Margin="0,0,0,10">
+                                    <CheckBox x:Name="ShowTests" DockPanel.Dock="Right" Style="{StaticResource Hue.Switch}" Margin="16,0,0,0"
+                                              Click="Filter_Changed" VerticalAlignment="Center"
+                                              ToolTip="Test code doesn't ship, but runs on every machine that runs the tests">
+                                        <TextBlock x:Name="ShowTestsText" Text="Tests" />
+                                    </CheckBox>
+                                    <Grid>
+                                        <TextBox x:Name="SearchBox" TextChanged="Search_Changed"
+                                                 AutomationProperties.Name="Search the findings"
+                                                 ToolTip="Search file names, targets and what the findings do" />
+                                        <!-- The hint, until something is typed. -->
+                                        <TextBlock Text="Search files, targets and what they do" IsHitTestVisible="False"
+                                                   VerticalAlignment="Center" Margin="12,0,12,0" TextWrapping="NoWrap" TextTrimming="CharacterEllipsis">
+                                            <TextBlock.Style>
+                                                <Style TargetType="TextBlock" BasedOn="{StaticResource Text.Caption}">
+                                                    <Setter Property="Visibility" Value="Collapsed" />
+                                                    <Style.Triggers>
+                                                        <DataTrigger Binding="{Binding Text, ElementName=SearchBox}" Value="">
+                                                            <Setter Property="Visibility" Value="Visible" />
+                                                        </DataTrigger>
+                                                    </Style.Triggers>
+                                                </Style>
+                                            </TextBlock.Style>
+                                        </TextBlock>
+                                    </Grid>
+                                </DockPanel>
+                                <!-- Set by a Show button on the Overview or Facts, or by a header pill: only those findings,
+                                     until cleared, and the way back to the tab and the place it came from. -->
+                                <Border x:Name="FocusBar" Style="{StaticResource Hue.Card}" Padding="14,8" Margin="0,0,0,10" Visibility="Collapsed">
+                                    <DockPanel>
+                                        <Button x:Name="BackButton" DockPanel.Dock="Left" Style="{StaticResource Hue.Button.Outline}" Content="Back to Overview"
+                                                Click="Back_Click" Margin="0,0,14,0" Visibility="Collapsed" />
+                                        <Button x:Name="ShowAllButton" DockPanel.Dock="Right" Style="{StaticResource Hue.Button.Outline}" Content="Show all" Click="ClearFocus_Click"
+                                                Margin="14,0,0,0" ToolTip="Back to every finding" Visibility="Collapsed" />
+                                        <TextBlock x:Name="FocusText" Style="{StaticResource Text.Body}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
+                                    </DockPanel>
+                                </Border>
+                            </StackPanel>
+
+                            <ListBox x:Name="FindingList" SelectionChanged="FindingList_SelectionChanged"
+                                     Grid.IsSharedSizeScope="True"
+                                     VirtualizingPanel.IsVirtualizing="True" VirtualizingPanel.IsVirtualizingWhenGrouping="True"
+                                     VirtualizingPanel.ScrollUnit="Pixel"
+                                     AutomationProperties.Name="Findings">
+                                <ListBox.GroupStyle>
+                                    <GroupStyle>
+                                        <GroupStyle.HeaderTemplate>
+                                            <DataTemplate>
+                                                <StackPanel Orientation="Horizontal" Margin="4,14,0,6">
+                                                    <ContentControl Style="{Binding Name, Converter={StaticResource ThemeStyle}}" Content="{Binding Name}" />
+                                                    <TextBlock Text="{Binding ItemCount, StringFormat='{}{0} found'}" Style="{StaticResource Text.Caption}"
+                                                               Margin="10,0,0,0" VerticalAlignment="Center" />
+                                                </StackPanel>
+                                            </DataTemplate>
+                                        </GroupStyle.HeaderTemplate>
+                                    </GroupStyle>
+                                </ListBox.GroupStyle>
+                                <ListBox.ItemTemplate>
+                                    <DataTemplate DataType="{x:Type ui:FindingRow}">
+                                        <Grid>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="Auto" SharedSizeGroup="Pill" />
+                                                <ColumnDefinition Width="*" />
+                                            </Grid.ColumnDefinitions>
+                                            <!-- No glow: these repeat in a list. -->
+                                            <ContentControl Style="{Binding PillKey, Converter={StaticResource ThemeStyle}}"
+                                                            Content="{Binding LegibilityText}" VerticalAlignment="Top" HorizontalAlignment="Left" />
+                                            <StackPanel Grid.Column="1" Margin="12,0,0,0">
+                                                <DockPanel>
+                                                    <!-- In the list, only the strongest mark, so the headline keeps its room; the detail shows them all. -->
+                                                    <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Margin="0,-2,0,-3" VerticalAlignment="Top">
+                                                        <ContentControl Style="{StaticResource Hue.Tag.Unsafe}" Content="Hidden on purpose" Margin="6,0,0,0"
+                                                                        ToolTip="{Binding HowHidden}"
+                                                                        Visibility="{Binding ListShowsHidden, Converter={StaticResource BoolToVisibility}}" />
+                                                        <ContentControl Style="{StaticResource Hue.Tag}" Content="Not used in this source" Margin="6,0,0,0"
+                                                                        ToolTip="Declared, looked up or created, but not used in this source: something it can do, not something it does."
+                                                                        Visibility="{Binding ListShowsUnused, Converter={StaticResource BoolToVisibility}}" />
+                                                        <ContentControl Style="{StaticResource Hue.Tag}" Content="Not called by the app" Margin="6,0,0,0"
+                                                                        ToolTip="Only tests call the code this runs in; in the shipped app it runs only if something outside the repo calls it."
+                                                                        Visibility="{Binding ListShowsNotCalled, Converter={StaticResource BoolToVisibility}}" />
+                                                    </StackPanel>
+                                                    <Path DockPanel.Dock="Left" Style="{StaticResource Hue.Icon}" Data="{Binding IconKey, Converter={StaticResource IconGeometry}}"
+                                                          TextElement.Foreground="{DynamicResource Brush.TextDim}" VerticalAlignment="Top" Margin="0,1,7,0"
+                                                          Visibility="{Binding HasIcon, Converter={StaticResource BoolToVisibility}}" />
+                                                    <TextBlock Text="{Binding Headline}" Style="{StaticResource Text.Body}" TextTrimming="CharacterEllipsis" />
+                                                </DockPanel>
+                                                <TextBlock Text="{Binding Where}" Style="{StaticResource Text.Caption}" FontFamily="{StaticResource Font.Mono}"
+                                                           TextTrimming="CharacterEllipsis" Margin="0,2,0,0" />
+                                            </StackPanel>
+                                        </Grid>
+                                    </DataTemplate>
+                                </ListBox.ItemTemplate>
+                            </ListBox>
+                        </DockPanel>
+
+                        <!-- The gap between list and code: drag it to give either side more room, double-click it for
+                             the 2 to 3 split again. A thin line shows only while the pointer is on it. Not saved. -->
+                        <Border x:Name="SplitLine" Grid.Column="1" Width="2" HorizontalAlignment="Center"
+                                Background="Transparent" IsHitTestVisible="False" />
+                        <GridSplitter x:Name="ListCodeSplitter" Grid.Column="1" Width="16" HorizontalAlignment="Stretch"
+                                      ResizeDirection="Columns" ResizeBehavior="PreviousAndNext" Background="Transparent"
+                                      ToolTip="Drag to give the list or the code more room. Double-click for the usual split."
+                                      AutomationProperties.Name="Resize the list and the code"
+                                      MouseEnter="Splitter_Hover" MouseLeave="Splitter_Hover"
+                                      DragStarted="Splitter_Drag" DragCompleted="Splitter_Drag"
+                                      GotKeyboardFocus="Splitter_Focus" LostKeyboardFocus="Splitter_Focus"
+                                      MouseDoubleClick="Splitter_Reset" />
+
+                        <!-- The selected finding. -->
+                        <Border Grid.Column="2" Style="{StaticResource Hue.Card}" Padding="0">
+                            <Grid>
+                                <TextBlock x:Name="NoSelection" Text="Pick a finding to see its code and where its target comes from."
+                                           Style="{StaticResource Text.Caption}" HorizontalAlignment="Center" VerticalAlignment="Center"
+                                           TextWrapping="Wrap" Margin="24" />
+                                <ScrollViewer x:Name="DetailScroll" VerticalScrollBarVisibility="Auto" Visibility="Collapsed">
+                                    <StackPanel x:Name="Detail" Margin="24,20,24,24">
+                                        <DockPanel>
+                                            <Button DockPanel.Dock="Right" Style="{StaticResource Hue.Button.Outline}" Click="CopyFinding_Click"
+                                                    Margin="16,0,0,0" VerticalAlignment="Top"
+                                                    ToolTip="Copies this finding, its code and its trace as Markdown, for a close look by an AI assistant">
+                                                <StackPanel Orientation="Horizontal">
+                                                    <Path Style="{StaticResource Hue.Icon}" Data="{StaticResource Icon.Copy}" />
+                                                    <TextBlock x:Name="CopyFindingText" Text="Copy this one" Margin="8,0,0,0" VerticalAlignment="Center" />
+                                                </StackPanel>
+                                            </Button>
+                                            <StackPanel>
+                                                <TextBlock Text="{Binding Summary}" Style="{StaticResource Text.Heading}" TextWrapping="Wrap" />
+                                                <!-- What this kind of finding is, in plain words, for someone who doesn't read code. -->
+                                                <TextBlock Text="{Binding WhatThisIs}" Style="{StaticResource Text.Caption}" TextWrapping="Wrap" Margin="0,4,0,0" />
+                                            </StackPanel>
+                                        </DockPanel>
+
+                                        <WrapPanel Margin="0,12,0,0">
+                                            <ContentControl Style="{Binding PillKey, Converter={StaticResource ThemeStyle}}" Content="{Binding LegibilityText}" Margin="0,0,8,6"
+                                                            ToolTip="{Binding LegibilityExplain}" />
+                                            <ContentControl Style="{Binding Scope, Converter={StaticResource ThemeStyle}}" Content="{Binding ScopeText}" Margin="0,0,8,6" />
+                                            <ContentControl Style="{StaticResource Hue.Tag}" Margin="0,0,8,6" ToolTip="{Binding WhatThisIs}">
+                                                <StackPanel Orientation="Horizontal">
+                                                    <Path Style="{StaticResource Hue.Icon}" Data="{Binding IconKey, Converter={StaticResource IconGeometry}}" Margin="-2,0,6,0"
+                                                          Visibility="{Binding HasIcon, Converter={StaticResource BoolToVisibility}}" />
+                                                    <TextBlock Text="{Binding KindText}" VerticalAlignment="Center" />
+                                                </StackPanel>
+                                            </ContentControl>
+                                            <ContentControl Style="{StaticResource Hue.Tag}" Content="{Binding OriginText}" Margin="0,0,8,6"
+                                                            Visibility="{Binding ShowOrigin, Converter={StaticResource BoolToVisibility}}" />
+                                            <ContentControl Style="{StaticResource Hue.Tag}" Content="Not called by the app" Margin="0,0,8,6"
+                                                            ToolTip="Only tests call the code this runs in; in the shipped app it runs only if something outside the repo calls it."
+                                                            Visibility="{Binding NotCalledByApp, Converter={StaticResource BoolToVisibility}}" />
+                                            <ContentControl Style="{StaticResource Hue.Tag.Unsafe}" Content="Hidden on purpose" Margin="0,0,8,6"
+                                                            ToolTip="{Binding HowHidden}"
+                                                            Visibility="{Binding ShowHiddenTag, Converter={StaticResource BoolToVisibility}}" />
+                                            <ContentControl Style="{StaticResource Hue.Tag}" Content="Not used in this source" Margin="0,0,8,6"
+                                                            ToolTip="Declared, looked up or created, but not used in this source: something it can do, not something it does."
+                                                            Visibility="{Binding Unused, Converter={StaticResource BoolToVisibility}}" />
+                                            <ItemsControl ItemsSource="{Binding Directions}">
+                                                <ItemsControl.ItemsPanel>
+                                                    <ItemsPanelTemplate><WrapPanel /></ItemsPanelTemplate>
+                                                </ItemsControl.ItemsPanel>
+                                                <ItemsControl.ItemTemplate>
+                                                    <DataTemplate>
+                                                        <ContentControl Style="{StaticResource Hue.Tag}" Content="{Binding}" Margin="0,0,8,6" />
+                                                    </DataTemplate>
+                                                </ItemsControl.ItemTemplate>
+                                            </ItemsControl>
+                                        </WrapPanel>
+
+                                        <TextBlock Text="WHERE" Style="{StaticResource Text.Section}" Margin="0,14,0,4" />
+                                        <TextBlock Text="{Binding WhereLong}" Style="{StaticResource Text.Mono}" TextWrapping="Wrap" />
+                                        <TextBlock Text="{Binding Call}" Style="{StaticResource Text.Caption}" FontFamily="{StaticResource Font.Mono}" TextWrapping="Wrap" Margin="0,3,0,0"
+                                                   Visibility="{Binding HasWhere, Converter={StaticResource BoolToVisibility}}" />
+
+                                        <TextBlock Text="{Binding TargetHeading}" Style="{StaticResource Text.Section}" Margin="0,14,0,4" />
+                                        <TextBlock Text="{Binding Target}" Style="{StaticResource Text.Body}" TextWrapping="Wrap" />
+
+                                        <StackPanel Visibility="{Binding HasLooksInside, Converter={StaticResource BoolToVisibility}}">
+                                            <TextBlock Text="WHAT IT LOOKS INSIDE" Style="{StaticResource Text.Section}" Margin="0,14,0,4" />
+                                            <TextBlock Text="{Binding LooksInside}" Style="{StaticResource Text.Body}" TextWrapping="Wrap" />
+                                        </StackPanel>
+
+                                        <StackPanel Visibility="{Binding HasWhoDecides, Converter={StaticResource BoolToVisibility}}">
+                                            <TextBlock Text="WHO DECIDES" Style="{StaticResource Text.Section}" Margin="0,14,0,4" />
+                                            <TextBlock Text="{Binding WhoDecides}" Style="{StaticResource Text.Body}" TextWrapping="Wrap" />
+                                        </StackPanel>
+
+                                        <StackPanel Visibility="{Binding HasReasons, Converter={StaticResource BoolToVisibility}}">
+                                            <TextBlock Text="WHERE IT'S DECIDED" Style="{StaticResource Text.Section}" Margin="0,14,0,4" />
+                                            <ItemsControl ItemsSource="{Binding Reasons}">
+                                                <ItemsControl.ItemTemplate>
+                                                    <DataTemplate>
+                                                        <TextBlock Text="{Binding StringFormat='• {0}'}" Style="{StaticResource Text.Body}" TextWrapping="Wrap" Margin="0,0,0,3" />
+                                                    </DataTemplate>
+                                                </ItemsControl.ItemTemplate>
+                                            </ItemsControl>
+                                        </StackPanel>
+
+                                        <StackPanel Visibility="{Binding HasCalls, Converter={StaticResource BoolToVisibility}}">
+                                            <TextBlock Text="{Binding CallsHeading}" Style="{StaticResource Text.Section}" Margin="0,14,0,6" />
+                                            <ItemsControl ItemsSource="{Binding Calls}" Grid.IsSharedSizeScope="True">
+                                                <ItemsControl.ItemTemplate>
+                                                    <DataTemplate DataType="{x:Type ui:CallRow}">
+                                                        <Grid Margin="0,0,0,8">
+                                                            <Grid.ColumnDefinitions>
+                                                                <ColumnDefinition Width="Auto" SharedSizeGroup="CallPill" />
+                                                                <ColumnDefinition Width="*" />
+                                                            </Grid.ColumnDefinitions>
+                                                            <ContentControl Style="{Binding Legibility, Converter={StaticResource ThemeStyle}}"
+                                                                            Content="{Binding LegibilityText}" VerticalAlignment="Top" HorizontalAlignment="Left" />
+                                                            <StackPanel Grid.Column="1" Margin="12,0,0,0">
+                                                                <TextBlock Text="{Binding Where}" Style="{StaticResource Text.Caption}" FontFamily="{StaticResource Font.Mono}" TextWrapping="Wrap" />
+                                                                <TextBlock Text="{Binding Target}" Style="{StaticResource Text.Body}" TextWrapping="Wrap" Margin="0,2,0,0" />
+                                                                <TextBlock Text="{Binding Reason}" Style="{StaticResource Text.Caption}" TextWrapping="Wrap" Margin="0,2,0,0"
+                                                                           Visibility="{Binding HasReason, Converter={StaticResource BoolToVisibility}}" />
+                                                            </StackPanel>
+                                                        </Grid>
+                                                    </DataTemplate>
+                                                </ItemsControl.ItemTemplate>
+                                            </ItemsControl>
+                                            <TextBlock Text="{Binding CallsMore}" Style="{StaticResource Text.Caption}" TextWrapping="Wrap"
+                                                       Visibility="{Binding HasCallsMore, Converter={StaticResource BoolToVisibility}}" />
+                                        </StackPanel>
+
+                                        <StackPanel Visibility="{Binding HasNotes, Converter={StaticResource BoolToVisibility}}">
+                                            <TextBlock Text="{Binding NotesHeading}" Style="{StaticResource Text.Section}" Margin="0,14,0,4" />
+                                            <ItemsControl ItemsSource="{Binding Notes}">
+                                                <ItemsControl.ItemTemplate>
+                                                    <DataTemplate>
+                                                        <TextBlock Text="{Binding StringFormat='• {0}'}" Style="{StaticResource Text.Caption}" TextWrapping="Wrap" Margin="0,0,0,3" />
+                                                    </DataTemplate>
+                                                </ItemsControl.ItemTemplate>
+                                            </ItemsControl>
+                                        </StackPanel>
+
+                                        <StackPanel Visibility="{Binding HasCode, Converter={StaticResource BoolToVisibility}}">
+                                            <TextBlock Text="CODE" Style="{StaticResource Text.Section}" Margin="0,14,0,6" />
+                                            <Border Background="{DynamicResource Brush.Base}" BorderBrush="{DynamicResource Brush.LineSoft}"
+                                                    BorderThickness="1" CornerRadius="{StaticResource Radius.Item}" Padding="0,8">
+                                                <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled"
+                                                              PreviewMouseWheel="PassWheelToPage">
+                                                    <ItemsControl ItemsSource="{Binding Code}">
+                                                        <ItemsControl.ItemTemplate>
+                                                            <DataTemplate DataType="{x:Type ui:CodeLine}">
+                                                                <Border x:Name="LineBox" BorderThickness="3,0,0,0" BorderBrush="Transparent" Padding="10,1,14,1">
+                                                                    <StackPanel Orientation="Horizontal">
+                                                                        <TextBlock Text="{Binding Number}" Style="{StaticResource Text.Mono}" Foreground="{DynamicResource Brush.TextMuted}"
+                                                                                   Width="44" TextAlignment="Right" Margin="0,0,14,0" />
+                                                                        <TextBlock ui:CodeText.Spans="{Binding Spans}" Style="{StaticResource Text.Mono}" Foreground="{DynamicResource Brush.Text}" />
+                                                                    </StackPanel>
+                                                                </Border>
+                                                                <DataTemplate.Triggers>
+                                                                    <DataTrigger Binding="{Binding IsFocus}" Value="True">
+                                                                        <Setter TargetName="LineBox" Property="Background" Value="{DynamicResource Brush.AccentSoft}" />
+                                                                        <Setter TargetName="LineBox" Property="BorderBrush" Value="{DynamicResource Brush.Accent}" />
+                                                                    </DataTrigger>
+                                                                </DataTemplate.Triggers>
+                                                            </DataTemplate>
+                                                        </ItemsControl.ItemTemplate>
+                                                    </ItemsControl>
+                                                </ScrollViewer>
+                                            </Border>
+                                        </StackPanel>
+
+                                        <StackPanel Visibility="{Binding HasTrace, Converter={StaticResource BoolToVisibility}}">
+                                            <TextBlock Text="WHERE THE TARGET COMES FROM, NEAREST FIRST" Style="{StaticResource Text.Section}" Margin="0,16,0,6" />
+                                            <ItemsControl ItemsSource="{Binding Trace}">
+                                                <ItemsControl.ItemTemplate>
+                                                    <DataTemplate>
+                                                        <StackPanel Margin="0,0,0,8">
+                                                            <TextBlock Style="{StaticResource Text.Caption}" FontFamily="{StaticResource Font.Mono}">
+                                                                <Run Text="{Binding File, Mode=OneWay}" /><Run Text=":" /><Run Text="{Binding Line, Mode=OneWay}" />
+                                                            </TextBlock>
+                                                            <TextBlock Text="{Binding Code}" Style="{StaticResource Text.Mono}" TextWrapping="Wrap" Margin="0,2,0,0" />
+                                                        </StackPanel>
+                                                    </DataTemplate>
+                                                </ItemsControl.ItemTemplate>
+                                            </ItemsControl>
+                                        </StackPanel>
+                                    </StackPanel>
+                                </ScrollViewer>
+                            </Grid>
+                        </Border>
+                    </Grid>
+                </TabItem>
+
+                <TabItem x:Name="FactsTab" Header="Facts">
+                    <ScrollViewer x:Name="FactsScroll" VerticalScrollBarVisibility="Auto" Margin="0,14,0,0">
+                        <StackPanel x:Name="Facts" Grid.IsSharedSizeScope="True">
+                            <!-- One sentence first, as on the Overview. -->
+                            <Border Style="{StaticResource Hue.Card}" Margin="0,0,0,16">
+                                <StackPanel>
+                                    <TextBlock Text="IN SHORT" Style="{StaticResource Text.Section}" Margin="0,0,0,8" />
+                                    <TextBlock Text="{Binding Headline}" Style="{StaticResource Text.Heading}" TextWrapping="Wrap" />
+                                </StackPanel>
+                            </Border>
+
+                            <Border Style="{StaticResource Hue.Card}" Margin="0,0,0,16">
+                                <StackPanel>
+                                    <TextBlock Text="HOW BIG IS IT" Style="{StaticResource Text.Section}" Margin="0,0,0,4" />
+                                    <TextBlock Text="How much code there is, and how long a careful read takes." Style="{StaticResource Text.Caption}" Margin="0,0,0,8" />
+                                    <ItemsControl ItemsSource="{Binding Size}" ItemTemplate="{StaticResource SizeTemplate}" />
+
+                                    <StackPanel Visibility="{Binding HasCode, Converter={StaticResource BoolToVisibility}}">
+                                        <TextBlock Text="LINES OF C#" Style="{StaticResource Text.Section}" Margin="0,14,0,6" />
+                                        <!-- One bar for the C#: app code, tests, comments, each its share. -->
+                                        <Grid Height="10">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="{Binding AppPart}" />
+                                                <ColumnDefinition Width="{Binding TestPart}" />
+                                                <ColumnDefinition Width="{Binding CommentPart}" />
+                                            </Grid.ColumnDefinitions>
+                                            <Border Background="{DynamicResource Brush.Accent}" />
+                                            <Border Grid.Column="1" Background="{DynamicResource Brush.AccentEdge}" />
+                                            <Border Grid.Column="2" Background="{DynamicResource Brush.Line}" />
+                                        </Grid>
+                                        <WrapPanel Margin="0,8,0,0">
+                                            <ContentControl Style="{StaticResource Hue.Marker}" Foreground="{DynamicResource Brush.Accent}" />
+                                            <TextBlock Text="{Binding AppText}" Style="{StaticResource Text.Body}" Margin="8,0,24,0" />
+                                            <ContentControl Style="{StaticResource Hue.Marker}" Foreground="{DynamicResource Brush.AccentEdge}"
+                                                            Visibility="{Binding HasTests, Converter={StaticResource BoolToVisibility}}" />
+                                            <TextBlock Text="{Binding TestText}" Style="{StaticResource Text.Body}" Margin="8,0,24,0"
+                                                       Visibility="{Binding HasTests, Converter={StaticResource BoolToVisibility}}" />
+                                            <ContentControl Style="{StaticResource Hue.Marker}" Foreground="{DynamicResource Brush.Line}"
+                                                            Visibility="{Binding HasComments, Converter={StaticResource BoolToVisibility}}" />
+                                            <TextBlock Text="{Binding CommentText}" Style="{StaticResource Text.Body}" Margin="8,0,0,0"
+                                                       Visibility="{Binding HasComments, Converter={StaticResource BoolToVisibility}}" />
+                                        </WrapPanel>
+                                    </StackPanel>
+
+                                    <StackPanel Visibility="{Binding HasLargest, Converter={StaticResource BoolToVisibility}}">
+                                        <TextBlock Text="LARGEST C# FILES" Style="{StaticResource Text.Section}" Margin="0,14,0,6" />
+                                        <ItemsControl ItemsSource="{Binding Largest}">
+                                            <ItemsControl.ItemTemplate>
+                                                <DataTemplate DataType="{x:Type ui:FileRow}">
+                                                    <Grid Margin="0,2">
+                                                        <Grid.ColumnDefinitions>
+                                                            <ColumnDefinition Width="Auto" SharedSizeGroup="FileName" />
+                                                            <ColumnDefinition Width="Auto" SharedSizeGroup="FileLines" />
+                                                            <ColumnDefinition Width="160" />
+                                                            <ColumnDefinition Width="*" />
+                                                        </Grid.ColumnDefinitions>
+                                                        <TextBlock Text="{Binding Path}" Style="{StaticResource Text.Body}" FontFamily="{StaticResource Font.Mono}"
+                                                                   MaxWidth="520" TextTrimming="CharacterEllipsis" ToolTip="{Binding Path}" VerticalAlignment="Center" Margin="0,0,16,0" />
+                                                        <TextBlock Grid.Column="1" Text="{Binding Lines}" Style="{StaticResource Text.Caption}" HorizontalAlignment="Right"
+                                                                   VerticalAlignment="Center" Margin="0,0,12,0" />
+                                                        <!-- Its size against the largest file. -->
+                                                        <Grid Grid.Column="2" Height="6" VerticalAlignment="Center">
+                                                            <Grid.ColumnDefinitions>
+                                                                <ColumnDefinition Width="{Binding Filled}" />
+                                                                <ColumnDefinition Width="{Binding Rest}" />
+                                                            </Grid.ColumnDefinitions>
+                                                            <Border Background="{DynamicResource Brush.Accent}" />
+                                                            <Border Grid.Column="1" Background="{DynamicResource Brush.LineSoft}" />
+                                                        </Grid>
+                                                        <Button Grid.Column="3" Style="{StaticResource Hue.Button.Outline}" Content="{Binding ShowText}" Tag="{Binding Show}"
+                                                                Click="ShowThese_Click" HorizontalAlignment="Left" Margin="16,0,0,0" MinWidth="100" ToolTip="Opens Findings with only this file's"
+                                                                Visibility="{Binding CanShow, Converter={StaticResource BoolToHidden}}" />
+                                                    </Grid>
+                                                </DataTemplate>
+                                            </ItemsControl.ItemTemplate>
+                                        </ItemsControl>
+                                    </StackPanel>
+                                </StackPanel>
+                            </Border>
+
+                            <Border Style="{StaticResource Hue.Card}" Margin="0,0,0,16">
+                                <StackPanel>
+                                    <TextBlock Text="HOW IT'S BUILT" Style="{StaticResource Text.Section}" Margin="0,0,0,4" />
+                                    <TextBlock Text="The projects in the repo, and what each turns into." Style="{StaticResource Text.Caption}" Margin="0,0,0,8" />
+                                    <TextBlock Text="{Binding ProjectsEmpty}" Style="{StaticResource Text.Body}"
+                                               Visibility="{Binding HasNoProjects, Converter={StaticResource BoolToVisibility}}" />
+                                    <ItemsControl ItemsSource="{Binding Projects}" ItemTemplate="{StaticResource FactShowTemplate}" />
+                                    <TextBlock Text="FILE TYPES" Style="{StaticResource Text.Section}" Margin="0,14,0,6" />
+                                    <ItemsControl ItemsSource="{Binding FileTypes}">
+                                        <ItemsControl.ItemsPanel>
+                                            <ItemsPanelTemplate><WrapPanel /></ItemsPanelTemplate>
+                                        </ItemsControl.ItemsPanel>
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate>
+                                                <ContentControl Style="{StaticResource Hue.Tag}" Content="{Binding}" Margin="0,0,8,6" />
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+                                </StackPanel>
+                            </Border>
+
+                            <Border Style="{StaticResource Hue.Card}" Margin="0,0,0,16">
+                                <StackPanel>
+                                    <TextBlock Text="WHAT COMES FROM OUTSIDE" Style="{StaticResource Text.Section}" Margin="0,0,0,4" />
+                                    <TextBlock Text="Code and addresses this repo depends on but doesn't contain. Each is a link you take on with the repo."
+                                               Style="{StaticResource Text.Caption}" TextWrapping="Wrap" Margin="0,0,0,4" />
+
+                                    <TextBlock Text="DEPENDENCIES" Style="{StaticResource Text.Section}" Margin="0,14,0,4" />
+                                    <TextBlock Style="{StaticResource Text.Caption}" TextWrapping="Wrap" Margin="0,0,0,6"
+                                               Text="Packages, referenced DLLs, other projects and CI actions: code written elsewhere." />
+                                    <TextBlock Text="{Binding DependenciesEmpty}" Style="{StaticResource Text.Body}"
+                                               Visibility="{Binding NoDependencies, Converter={StaticResource BoolToVisibility}}" />
+                                    <ItemsControl ItemsSource="{Binding Dependencies}" ItemTemplate="{StaticResource FactTemplate}" />
+
+                                    <TextBlock Text="BLACK BOXES" Style="{StaticResource Text.Section}" Margin="0,14,0,4" />
+                                    <TextBlock Style="{StaticResource Text.Caption}" TextWrapping="Wrap" Margin="0,0,0,6"
+                                               Text="Compiled code and archives inside the zip. They can't be read here; whatever they do is hidden from this report." />
+                                    <TextBlock Text="{Binding BlackBoxesEmpty}" Style="{StaticResource Text.Body}"
+                                               Visibility="{Binding NoBlackBoxes, Converter={StaticResource BoolToVisibility}}" />
+                                    <ItemsControl ItemsSource="{Binding BlackBoxes}" ItemTemplate="{StaticResource FactTemplate}" />
+
+                                    <TextBlock Text="WEB ADDRESSES" Style="{StaticResource Text.Section}" Margin="0,14,0,4" />
+                                    <TextBlock Style="{StaticResource Text.Caption}" TextWrapping="Wrap" Margin="0,0,0,6"
+                                               Text="Every address the shipped code and its configuration name, wherever it's used. Tests, comments and XML namespaces aren't counted." />
+                                    <TextBlock Text="{Binding EndpointsEmpty}" Style="{StaticResource Text.Body}"
+                                               Visibility="{Binding NoEndpoints, Converter={StaticResource BoolToVisibility}}" />
+                                    <ItemsControl ItemsSource="{Binding Endpoints}" ItemTemplate="{StaticResource FactTemplate}" />
+                                </StackPanel>
+                            </Border>
+
+                            <Border Style="{StaticResource Hue.Card}">
+                                <StackPanel>
+                                    <TextBlock Text="WHAT THE SCAN COVERED" Style="{StaticResource Text.Section}" Margin="0,0,0,4" />
+                                    <TextBlock Text="How many findings it made for the amount of code, and what it can't see."
+                                               Style="{StaticResource Text.Caption}" TextWrapping="Wrap" Margin="0,0,0,8" />
+                                    <ItemsControl ItemsSource="{Binding Coverage}" ItemTemplate="{StaticResource SizeTemplate}" />
+                                    <TextBlock Text="NOT COVERED BY THE SCAN" Style="{StaticResource Text.Section}" Margin="0,14,0,6" />
+                                    <TextBlock Text="{Binding NotCoveredEmpty}" Style="{StaticResource Text.Body}"
+                                               Visibility="{Binding NoNotCovered, Converter={StaticResource BoolToVisibility}}" />
+                                    <ItemsControl ItemsSource="{Binding NotCovered}">
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate>
+                                                <TextBlock Text="{Binding StringFormat='• {0}'}" Style="{StaticResource Text.Body}" TextWrapping="Wrap" Margin="0,0,0,4" />
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+                                </StackPanel>
+                            </Border>
+                        </StackPanel>
+                    </ScrollViewer>
+                </TabItem>
+            </TabControl>
+        </Grid>
+
+        <!-- ================= status bar ================= -->
+        <Border Grid.Row="2" Style="{StaticResource Hue.StatusBar}">
+            <StackPanel Orientation="Horizontal">
+                <ContentControl x:Name="StatusDot" Style="{StaticResource Hue.Marker}" Foreground="{DynamicResource Brush.Ok}" />
+                <TextBlock x:Name="StatusText" Text="Ready" Margin="9,0,0,0" VerticalAlignment="Center" />
+            </StackPanel>
+        </Border>
+
+        <busy:BusyOverlay x:Name="Busy" Grid.RowSpan="3" AnimateOverride="True" />
+    </Grid>
+</Window>
